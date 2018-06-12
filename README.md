@@ -18,7 +18,7 @@ We use Microsoft Azure services to deploy this application. However, with few co
 2. Azure Command-line interface installation. Please refer to [Azure-cli installation tutorial](https://databricks.com/blog/2015/09/22/large-scale-topic-modeling-improvements-to-lda-on-apache-spark.html)
 3. Azure storage account. Please refer to [Azure storage account management tutorial](https://Azure.microsoft.com/en-us/documentation/articles/storage-create-storage-account/).
 4. Azure resource group
-5. Git and project git repository `git clone https://hazznain@bitbucket.org/hazznain/twitteropinionmining.git`
+5. Git and project git repository `git clone https://github.com/Software-Development-Pakistan/twitter-opinion-mining`
 6. MacOS / Centos / Ubuntu with Scala 2.10.4, SBT (v 0.13.9 +) and Java 7 or 8
 7. GNU Make utility.
 8. Apache web server for hosting d3js dashboard.
