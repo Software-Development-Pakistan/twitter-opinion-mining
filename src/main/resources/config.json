@@ -1,0 +1,35 @@
+{
+  "sparkSettings": {
+    "appName": "Twitter-Opinion-Mining",
+    "executorMemory": "10g",
+    "driverMemory": "8g"
+  },
+  "input": {
+    "tweets": "/mlcrew/pti-tweets/pti-tweets-July15.json",
+    "trainingData": "/mlcrew/twitter_training/twitter_training.csv",
+    "stopwords": "/mlcrew/twitter_training/stopwords.txt"
+  },
+  "output": {
+    "csvOutputPath": "/mlcrew/pti_results/output.csv",
+    "hostname": "aaltoms.database.windows.net:1433;database=ms_twitter",
+    "database": "ms_twitter",
+    "user": "aaltoadmin@aaltoms",
+    "password": "",
+    "encrypt": true,
+    "trustServerCertificate": false,
+    "hostNameInCertificate": "*.database.windows.net",
+    "loginTimeout": 30,
+    "table": "twitter_opinions"
+  },
+  "topicModelling": {
+    "i": 20,
+    "k": 5,
+    "n": 10,
+    "wnd": 5,
+    "topicSample": 3
+  },
+  "peakDetection": {
+    "alpha": 5,
+    "beta": 12
+  }
+}

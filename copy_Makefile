@@ -1,0 +1,19 @@
+.PHONY: cluster build submit cleanup
+
+cluster:
+	azure hdinsight cluster create -g msspark -l "East US" -y Linux --clusterType Spark --defaultStorageAccountName aaltospark.blob.core.windows.net --defaultStorageAccountKey <storage_account_key> --defaultStorageContainer aaltoms --workerNodeCount 2 --userName aaltoadmin --password <admin_password> --sshUserName aaltossh --sshPassword <ssh_passwordd> aaltoms
+	echo "azure hdinsight spark"
+
+build:
+	sbt assembly
+	azure storage blob upload -f /Users/ahmedh1/Documents/phd_docs/Microsoft/code/twitteropinionmining/target/scala-2.10/twitter_opinion_mining.jar -q -a aaltospark --container aaltoms -b sentiment-jar/twitter_opinion_mining.jar
+
+submit:
+	curl -k --user "aaltoadmin:<password>" -v -H "Content-Type: application/json" -X POST -d '{ "file":"wasb:///sentiment-jar/twitter_opinion_mining.jar", "className":"TwitterOpinionMining", "executorMemory":"10g", "driverMemory":"8g" }' 'https://aaltoms.azurehdinsight.net/livy/batches'
+
+
+cleanup:
+	echo "delete cluster"
+	azure hdinsight cluster delete -q -v -g msspark aaltoms
+	echo "cleaning the azure blob"
+	azure storage container delete -q -v -a aaltospark -k <storage_account_key> --container aaltoms

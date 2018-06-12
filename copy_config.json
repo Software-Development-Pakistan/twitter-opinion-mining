@@ -1,0 +1,35 @@
+{
+  "sparkSettings": {
+    "appName": "Twitter-Opinion-Mining",
+    "executorMemory": "10g",
+    "driverMemory": "4g"
+  },
+  "input": {
+    "tweets": "wasb://ms-tweets-daily@{{env `AZURE_STORAGE_ACCOUNT`}}.blob.core.windows.net/*/",
+    "trainingData": "wasb://sentiment-training@${AZURE_STORAGE_ACCOUNT}.blob.core.windows.net/twitter_training.csv",
+    "stopwords": "wasb://sentiment-stopwords@${AZURE_STORAGE_ACCOUNT}.blob.core.windows.net/stopwords.txt"
+  },
+  "output": {
+    "csvOutputPath": "wasb://sentiment-output@${AZURE_STORAGE_ACCOUNT}.blob.core.windows.net/output.csv",
+    "hostname": "{AZURE_DB_CLUSTER_NAME}.database.windows.net:1433;database=${AZURE_DB_PASSWD}",
+    "database": "${AZURE_DB_NAME}",
+    "user": "${AZURE_DB_ADMIN}@${AZURE_DB_CLUSTER_NAME}",
+    "password": "${AZURE_DB_PASSWD}",
+    "encrypt": true,
+    "trustServerCertificate": false,
+    "hostNameInCertificate": "*.database.windows.net",
+    "loginTimeout": 30,
+    "table": "twitter_opinions"
+  },
+  "topicModelling": {
+    "i": 20,
+    "k": 5,
+    "n": 10,
+    "wnd": 5,
+    "topicSample": 3
+  },
+  "peakDetection": {
+    "alpha": 5,
+    "beta": 12
+  }
+}

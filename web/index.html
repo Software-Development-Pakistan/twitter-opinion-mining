@@ -1,0 +1,672 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>Tweet visualization</title>
+</head>
+<body>
+<style>
+
+    .small {
+        font-size: 75%;
+    }
+
+    .chart {
+        /*background-color: #333;
+        /*background-color: rgba(20, 60, 50, 0.3);*/
+    }
+    #positivePath {
+        fill: none;
+        stroke: #164;
+        stroke-width: 1.5px;
+    }
+    #negativePath {
+        fill: none;
+        stroke: #812;
+        stroke-width: 1.5px;
+    }
+
+    .axis text {
+      font: 10px sans-serif;
+    }
+    .axis path,
+    .axis line {
+      fill: none;
+      stroke: #000;
+      shape-rendering: crispEdges;
+    }
+
+    .xAxisHelplines text,
+    .xAxisHelplines path,
+    .yAxisHelplines text,
+    .yAxisHelplines path {
+        display: none;
+    }
+    .xAxisHelplines line,
+    .yAxisHelplines line {
+        fill: none;
+        stroke: #000;
+        opacity: 0.2;
+        shape-rendering: crispEdges;
+    }
+
+    .axisLabel text {
+        text-anchor: end;
+        fill: #000;
+        font: 20px sans-serif;
+    }
+
+    .grid line {
+        stroke: #fff;
+    }
+
+    .peak:hover {
+        cursor: pointer;
+    }
+
+    .peakInfo {
+        position: absolute;
+        padding: 10px;
+        border-radius: 7px;
+        word-wrap: normal;
+    }
+    .peakInfoPositive {
+        background-color: rgba(40, 110, 70, 0.8);
+        color: white;
+    }
+    .peakInfoNegative {
+        background-color: rgba(120, 50, 50, 0.8);
+        color: white;
+    }
+    .peakInfo h3,
+    .peakInfo h4,
+    .peakInfo p {
+        margin-top: 0px;
+        margin-bottom: 3px;
+    }
+    .peakInfo li {
+        margin: 8px 0px;
+    }
+    .topicElement:hover {
+        cursor: pointer;
+        font-weight: bold;
+    }
+
+    .sampleTweetsInfo {
+        position: absolute;
+        padding: 10px;
+        border-radius: 7px;
+        word-wrap: normal;
+        background-color: rgba(30, 60, 110, 0.8);
+        color: white;
+    }
+    .sampleTweetsInfo h3,
+    .sampleTweetsInfo p {
+        margin-top: 0px;
+        margin-bottom: 3px;
+    }
+    .sampleTweetsInfo ul {
+        padding-left: 20px;
+    }
+    .sampleTweetsInfo li {
+        margin: 8px 0px;
+    }
+
+    .rangeDiv {
+        position: absolute;
+        bottom: 70px;
+    }
+    .rangeDiv > div {
+        display: inline-block;
+    }
+    .rangeDiv > div > label {
+        font-size: 120%;
+        font-weight: bold;
+    }
+    .rangeDiv input {
+        margin: 2px 5px 2px 5px;
+    }
+    .startDateInput, .endDateInput {
+
+    }
+    .startHourInput, .endHourInput {
+        width: 40px;
+    }
+
+</style>
+
+<svg class="chart"></svg>
+<div class="rangeDiv">
+    <div>
+        <label>From</label>
+        <div>
+            <label>Date</label><input type="date" id="startDateInput" name="startDate"></input>
+        </div>
+        <div>
+            <label>Hour</label><input type="number" id="startHourInput" name="startHour"></input>
+        </div>
+    </div>
+    <div>
+        <label>To (and including)</label>
+        <div>
+            <label>Date</label><input type="date" id="endDateInput" name="endDate"></input>
+        </div>
+        <div>
+            <label>Hour</label><input type="number" id="endHourInput" name="endHour"></input>
+        </div>
+    </div>
+    <div>
+        <button onclick="updateRange()">Update</button>
+    </div>
+</div>
+
+<script src="https://d3js.org/d3.v4.min.js"></script>
+<script>
+
+    /* ========= INPUT ========= */
+    // A URL to a CSV or JSON file containing the data to be visualized (NB! May need to allow CORS if loading from an external host):
+    var DATA_URL = "http://13.92.177.234/data.php";
+
+    // The format of the input data (supports 'csv' and 'json'):
+    var inputType = "json";
+    /* ========================= */
+
+    var defaultInterval = 2 * 7 * 24;    // [2 weeks] The maximum time interval displayed initially, in hours. If the user wishes to see a longer time period, they need to specify it under the graph.
+    var ww = window.innerWidth;
+    var wh = window.innerHeight;
+    var margin = {top: 20, right: 180, bottom: 60, left: 40};
+    var paddingRight = 10, paddingBottom = 140;
+    var yValuePaddingCoefficient = 1.1;     // The coefficient telling how much taller the graph grid should be than the tallest peak
+    var width, height;
+    var peakInfoWidth = 350;
+    var sampleTweetsInfoWidth = 300;
+    var n;
+    var dx;
+    var preparedData;
+    var minDate, maxDate;
+    var minDateLimit, maxDateLimit;
+
+    var heightScale;
+    var horOffsetScale;
+    var timeScale;
+
+    var posColor = "#164";
+    var negColor = "#812";
+
+    var parseDate = d3.timeParse("%a %b %d %H:%M:%S %Y");
+    var formatDate = d3.timeFormat("%Y-%m-%d");
+    var parseInputDate = d3.timeParse("%Y-%m-%d %H");
+
+    var positiveGraph;
+    var negativeGraph;
+
+    var selectedPeak = -1;
+    var sampleTweetsSelected = false;
+
+    var originalChart = d3.select(".chart");
+    var chart;
+
+    var peakInfo = d3.select("html")
+        .append("div")
+            .attr("class", "peakInfo")
+            .style("width", peakInfoWidth + "px")
+            .style("display", "none");
+
+    var sampleTweetsInfo = d3.select("html")
+        .append("div")
+            .attr("class", "sampleTweetsInfo")
+            .style("width", sampleTweetsInfoWidth + "px")
+            .style("display", "none");
+
+    d3.select("body")
+            .on("click", backgroundClick);
+
+    window.onresize = function() {
+        if (typeof preparedData !== 'undefined') {
+            clearGraphics();
+            scale();
+            renderGraph(preparedData);
+        }
+    };
+
+    loadData(DATA_URL);
+
+    /**
+     * Loads the data from JSON, sets the initial variables and executes
+     * renderGraph() once the data has been loaded.
+     * @param {string} path The URL from which the data is to be loaded.
+     */
+    function loadData(path) {
+        var loader;
+        if (inputType === "csv") {
+            loader = d3.csv;
+        } else if (inputType === "json") {
+            loader = d3.json;
+        } else {
+            throw "Unsupported data format '" + inputType + "'.";
+        }
+        loader(path, function(error, data) {
+            for (var i=0; i<data.length; i++) {
+                formatTypes(data[i]);
+            }
+            console.log(data);
+            // NB! Sorting here is unnecessary if the provided input data is already sorted in the desired way. This particular version makes no assumptions on the order of the input data, however.
+            data.sort(function (a, b) {
+            	if (a.hour.getTime() === b.hour.getTime()) {
+            		if (a.sentiment) return 1;
+            		else return -1;
+            	} else if (a.hour < b.hour) {
+           			return -1;
+            	} else {
+            		return 1;
+            	}
+            });
+            if (error) return console.warn(error);
+            if (data.length <= 2) { throw "Too few data elements."; }
+            if (data.length % 2 !== 0) { throw "Not an even number of data elements."; }    // Data points must always come in pairs (positive, negative). If there is an odd amount of elements, the data is certain to be invalid.
+            n = data.length / 2;
+            heightScale = d3.scaleLinear()
+                    .domain([parseInt(d3.max(data, function(d) { return d.tweets; }) * yValuePaddingCoefficient), 0]);
+            horOffsetScale = d3.scaleLinear()
+                    .domain([0, n - 1]);
+            minDateLimit = d3.min(data, function(d) { return d.hour; });
+            maxDateLimit = d3.max(data, function(d) { return d.hour; });
+            if (maxDateLimit - minDateLimit > defaultInterval * 3600000) {
+                minDate = new Date(maxDateLimit.getTime() - defaultInterval * 3600000);
+            } else {
+                minDate = minDateLimit;
+            }
+            maxDate = maxDateLimit;
+            d3.select("#startDateInput").attr("value", formatDate(minDate));
+            d3.select("#startHourInput").attr("value", d3.timeFormat("%H")(minDate));
+            d3.select("#endDateInput").attr("value", formatDate(maxDate));
+            d3.select("#endHourInput").attr("value", d3.timeFormat("%H")(maxDate));
+            timeScale = d3.scaleTime()
+                    .domain([minDate, maxDate]);
+            scale();
+            preparedData = data;
+            filterData();
+        });
+    }
+
+    /**
+     * Applies a filter corresponding to the current time range to the data and
+     * updates the graph accordingly.
+     */
+    function filterData() {
+      if (typeof preparedData !== 'undefined') {
+        var data = preparedData.filter(function(d) { return d.hour >= minDate && d.hour <= maxDate; });
+        n = data.length / 2;
+        dx = width / (n - 1);
+        horOffsetScale
+                .domain([0, n - 1]);
+        timeScale = timeScale
+                .domain([minDate, maxDate]);
+        clearGraphics();
+        renderGraph(data);
+      } else {
+        throw "Could not resize time window because data has not loaded.";
+      }
+    }
+
+    /**
+     * Scales the graph to the current window size and shape.
+     */
+    function scale() {
+        ww = window.innerWidth - paddingRight;
+        wh = window.innerHeight - paddingBottom;
+        width = ww - margin.left - margin.right;
+        height = wh - margin.top - margin.bottom;
+        dx = width / (n - 1);
+        chart = originalChart
+                .attr("width", width + margin.left + margin.right)
+                .attr("height", height + margin.top + margin.bottom)
+            .append("g")
+                .attr("transform", "translate(" + margin.left + "," + margin.top + ")");
+        heightScale.range([0, height]);
+        horOffsetScale.range([0, width]);
+        timeScale.range([0, width]);
+    }
+
+    /**
+     * Formats an element of the loaded dataset (a point) into its appropriate
+     * data types.
+     * @param {object} d A data element (a point).
+     * @return {object} The same data element, after having been modified.
+     */
+    function formatTypes(d) {
+        var hourList = d.hour.split(" ");
+        hourList.splice(4, 1);
+        d.hour = parseDate(hourList.join(" "));
+        d.sentiment = d.sentiment === 1 || d.sentiment === "1" || d.sentiment === "true"  || d.sentiment === true;
+        d.tweets = +d.tweets;
+        if (d.topics === "null" || d.topics === null) {
+            d.topics = undefined;
+        } else {
+            d.topics = d.topics.split(";");
+        }
+        if (d.sampleTweets === "null" || d.sampleTweets === null) {
+            d.sampleTweets = undefined;
+        } else {
+            d.sampleTweets = d.sampleTweets.split("|");
+        }
+        if (d.hashtags === "null" || d.hashtags === null) {
+            d.hashtags = undefined;
+        } else {
+            d.hashtags = d.hashtags.split(",");
+        }
+        return d;
+    }
+
+    /**
+     * Renders the graph as SVG.
+     * @param {array} data The list of data elements to be plotted.
+     */
+    function renderGraph(data) {
+        var positivePoints = getPositivePoints(data, heightScale);
+        var negativePoints = getNegativePoints(data, heightScale);
+        var positivePathString = "";
+        var negativePathString = "";
+        for (var i=0; i<n; i++) {
+            var prefix = " L";              // The path command
+            if (i === 0) { prefix = "M"; }
+            positivePathString += prefix + horOffsetScale(i) + " " + positivePoints[i];
+            negativePathString += prefix + horOffsetScale(i) + " " + negativePoints[i];
+        }
+        var xAxis = d3.axisBottom(timeScale);
+        var yAxis = d3.axisLeft(heightScale);
+        var xAxisHelplines = d3.axisBottom(timeScale)
+                .tickSizeInner(-height);
+        var yAxisHelplines = d3.axisLeft(heightScale)
+                .tickSizeInner(-width);
+
+        // Drawing help grid:
+        chart.append("g")
+                .attr("class", "xAxisHelplines")
+                .attr("transform", "translate(0," + height + ")")
+                .call(xAxisHelplines);
+        chart.append("g")
+                .attr("class", "yAxisHelplines")
+                .call(yAxisHelplines);
+        // Drawing graph:
+        positiveGraph = chart.append("g")
+            .append("path")
+                .attr("id", "positivePath")
+                .attr("d", positivePathString);
+        negativeGraph = chart.append("g")
+            .append("path")
+                .attr("id", "negativePath")
+                .attr("d", negativePathString);
+        // Drawing axes:
+        chart.append("g")
+                .attr("class", "xAxis axis")
+                .attr("transform", "translate(0," + height + ")")
+                .call(xAxis)
+            .append("g")
+                .attr("class", "axisLabel xAxisLabel")
+            .append("text")
+                .attr("x", width - 10)
+                .attr("y", -10)
+                .text("Time");
+        chart.append("g")
+                .attr("class", "yAxis axis")
+                .call(yAxis)
+            .append("g")
+                .attr("class", "axisLabel yAxisLabel")
+            .append("text")
+                .attr("transform", "rotate(-90)")
+                .attr("x", -10)
+                .attr("y", 20)
+                .text("Tweets");
+
+        // Drawing chart colour labels:
+        var chartColors = chart.append("g")
+                .attr("transform", "translate(" + (width + 10) + ", 40)");
+        chartColors.append("path")
+                .attr("transform", "translate(0, 0)")
+                .attr("d", "M0 0 L20 0 L20 20 L0 20 Z")
+                .attr("fill", posColor)
+                .on("mouseenter", highlightPositive)
+                .on("mouseout", unhighlightPositive);
+        chartColors.append("text")
+                .attr("transform", "translate(24, 16)")
+                .text("Positive tweets")
+                .on("mouseenter", highlightPositive)
+                .on("mouseout", unhighlightPositive);
+        chartColors.append("path")
+                .attr("transform", "translate(0, 30)")
+                .attr("d", "M0 0 L20 0 L20 20 L0 20 Z")
+                .attr("fill", negColor)
+                .on("mouseenter", highlightNegative)
+                .on("mouseout", unhighlightNegative);
+        chartColors.append("text")
+                .attr("transform", "translate(24, 46)")
+                .text("Negative tweets")
+                .on("mouseenter", highlightNegative)
+                .on("mouseout", unhighlightNegative);
+
+        renderPeaks(data);
+    }
+
+    /*
+    The following four functions highlight and unhighlight the graphs:
+    */
+    function highlightPositive() {
+        d3.select("#positivePath")
+                .style("stroke-width", "3px");
+    }
+    function unhighlightPositive() {
+        d3.select("#positivePath")
+                .style("stroke-width", "");
+    }
+    function highlightNegative() {
+        d3.select("#negativePath")
+                .style("stroke-width", "3px");
+    }
+    function unhighlightNegative() {
+        d3.select("#negativePath")
+                .style("stroke-width", "");
+    }
+
+    /**
+     * Transforms the given dataset into an array of heights (in pixels) that
+     * describe a graph corresponding to the amount of positive tweets per hour.
+     * @param {array} data The dataset to be plotted.
+     * @pram {function} scale A d3 scaling function that maps data values to their heights (in pixels) in the graph.
+     */
+    function getPositivePoints(data, scale) {
+        return data
+                .filter(function(d) { return d.sentiment; })
+                .map(function(d) { return scale(d.tweets); } );
+    }
+    /**
+     * Transforms the given dataset into an array of heights (in pixels) that
+     * describe a graph corresponding to the amount of negative tweets per hour.
+     * @param {array} data The dataset to be plotted.
+     * @pram {function} scale A d3 scaling function that maps data values to their heights (in pixels) in the graph.
+     */
+    function getNegativePoints(data, scale) {
+        return data
+                .filter(function(d) { return !d.sentiment; })
+                .map(function(d) { return scale(d.tweets); } );
+    }
+
+    /**
+     * Renders the peak markers.
+     * @param {array} data The dataset which peaks are to be identified.
+     */
+    function renderPeaks(data) {
+        var peakIndices = d3.range(0, data.length).filter(function(i) { return data[i].topics !== undefined; });
+        peakIndices.forEach( function(i) {
+            var color = "#052";
+            if (!data[i].sentiment) { color = "#711"; }
+            chart.append("g")
+                    .attr("class", "peak")
+                .append("circle")
+                    .attr("cx", horOffsetScale(parseInt(i / 2)))
+                    .attr("cy", heightScale(data[i].tweets))
+                    .attr("r", 7)
+                    .attr("fill", color)
+                    .attr("opacity", 0.5)
+                    .attr("data-i", i)
+                    .attr("title", "testytest")
+                    .on("mouseenter", function() { d3.select(this).attr("r", 10); })
+                    .on("mouseout", function() { d3.select(this).attr("r", 7); })
+                    .on("click", function() { showPeakInfo(i, data[i], d3.mouse(this)[0], d3.mouse(this)[1]); });
+        });
+    }
+
+    /**
+     * Displays an info window about a certain peak.
+     * @param {number} i The index of the peak
+     * @param {object} element The data element corresponding to the peak
+     * @param {number} x The x coordinate (in pixels) at which the info window should begin.
+     * @param {number} y The y coordinate (in pixels) at which the info window should begin.
+     */
+    function showPeakInfo(i, element, x, y) {
+        selectedPeak = i;
+        var topics = element.topics.map(function(t) { return t.split(",").join(" "); });
+        var sampleTweets = element.sampleTweets;
+        var sampleTweetsX = x - sampleTweetsInfoWidth - 40;
+        if (x < sampleTweetsInfoWidth + 40) {
+            sampleTweetsX = x + peakInfoWidth + 40;
+        }
+        if ((sampleTweets.length / topics.length) % 1 !== 0) {
+            throw "Number of sample tweets per topic not constant.";
+        }
+        var tweetsPerTopic = parseInt(sampleTweets.length / topics.length);
+        var hashtags = element.hashtags.join(", ");
+        var sentimentString = "Positive";
+        if (!element.sentiment) { sentimentString = "Negative"; }
+        peakInfo.html("")
+                .style("left", x + "px")
+                .style("top", y + "px")
+                .classed("peakInfoPositive", element.sentiment)
+                .classed("peakInfoNegative", !element.sentiment)
+                .style("display", "inherit");
+        peakInfo.append("h3")
+                .text(sentimentString + " peak");
+        peakInfo.append("div")
+                .text(element.tweets + " " + sentimentString.toLowerCase() + " tweets during this hour.");
+        peakInfo.append("div")
+                .attr("class", "small")
+                .text("(Topic modelling applied on a time period from n hours before to n hours after the peak hour.)");
+        peakInfo.append("br");
+        peakInfo.append("h4")
+                .text("Topics:");
+        var topicList = peakInfo.append("ol");
+        var selectSampleTweets = function() { sampleTweetsSelected = true; };
+        for (var j=0; j<topics.length; j++) {
+            var tweets = sampleTweets.slice(j * tweetsPerTopic, (j + 1) * tweetsPerTopic);
+            topicList.append("li")
+                    .attr("class", "topicElement")
+                    .text(topics[j])
+                    .on("mouseenter", showSampleTweetsGen(tweets, sampleTweetsX, y))
+                    .on("mouseout", hideSampleTweets)
+                    .on("click", selectSampleTweets);
+        }
+        peakInfo.append("h4")
+                .text("Top 10 hashtags:");
+        peakInfo.append("p")
+                .text(hashtags);
+    }
+
+    /**
+     * Checks whether the click was a valid background click and if so, performs
+     * the actions of a click in the background, i.e. hides all currently open
+     * info windows.
+     */
+    function backgroundClick() {
+        sampleTweetsSelected = false;
+        hideSampleTweets();
+        var target = d3.event.target;
+        if (target.parentNode.classList.contains("peak") && d3.select(target).attr("data-i") === selectedPeak.toString()) {
+        } else {
+            if (peakInfo.style("display") !== "none") {
+                selectedPeak = -1;
+                peakInfo.style("display", "none");
+            }
+        }
+    }
+
+    /**
+     * Clears all the graphics rendered on the graph.
+     */
+    function clearGraphics() {
+        chart.html("");
+    }
+
+    /**
+     * Generates a function, specfic to the given set of sample tweets, which in
+     * turn renders a window displaying these sample tweets when called.
+     * @param {array} tweets An array of the sample tweets to be displayed.
+     * @param {number} x The x coordinate (in pixels) at which the window should begin.
+     * @param {number} y The y coordinate (in pixels) at which the window should begin.
+     */
+    function showSampleTweetsGen(tweets, x, y) {
+        return function() {
+            sampleTweetsInfo.html("")
+                    .style("left", x + "px")
+                    .style("top", y + "px")
+                    .style("display", "inherit");
+            sampleTweetsInfo.append("h3")
+                    .text("Sample tweets");
+            var tweetList = sampleTweetsInfo.append("ul");
+            for (var i=0; i<tweets.length; i++) {
+                tweetList.append("li")
+                        .text(tweets[i]);
+            }
+        };
+    }
+
+    /**
+     * Hides the sample tweet window.
+     */
+    function hideSampleTweets() {
+        if (!sampleTweetsSelected) {
+            sampleTweetsInfo.style("display", "none");
+        }
+    }
+
+    /**
+     * Reads the user input describing the start and end date of the time
+     * interval to be plotted in the graph and updates the graph accordingly.
+     */
+    function updateRange() {
+      var minDateStr = d3.select("#startDateInput").property("value");
+      var minHourStr = d3.select("#startHourInput").property("value");
+      if (minHourStr.length < 2) {
+        minHourStr = "0" + minHourStr;
+      }
+      var minDateCandidate = parseInputDate(minDateStr + " " + minHourStr);
+      var maxDateStr = d3.select("#endDateInput").property("value");
+      var maxHourStr = d3.select("#endHourInput").property("value");
+      if (maxHourStr.length < 2) {
+        maxHourStr = "0" + maxHourStr;
+      }
+      var maxDateCandidate = parseInputDate(maxDateStr + " " + maxHourStr);
+
+      if (minDateCandidate > minDateLimit) {
+          if (minDateCandidate < maxDateCandidate) {
+              minDate = minDateCandidate;
+          }
+      } else {
+          minDate = minDateLimit;
+      }
+      if (maxDateCandidate < maxDateLimit) {
+          if (maxDateCandidate > minDateCandidate) {
+              maxDate = maxDateCandidate;
+          }
+      } else {
+          maxDate = maxDateLimit;
+      }
+      d3.select("#startDateInput").property("value", formatDate(minDate));
+      d3.select("#startHourInput").property("value", minDate.getHours());
+      d3.select("#endDateInput").property("value", formatDate(maxDate));
+      d3.select("#endHourInput").property("value", maxDate.getHours());
+      filterData();
+    }
+
+</script>
+</body>
+</html>
